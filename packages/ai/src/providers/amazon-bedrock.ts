@@ -236,7 +236,11 @@ export const streamBedrock: StreamFunction<"bedrock-converse-stream", BedrockOpt
 				} else if (item.contentBlockStop) {
 					handleContentBlockStop(item.contentBlockStop, blocks, output, stream);
 				} else if (item.messageStop) {
-					output.stopReason = mapStopReason(item.messageStop.stopReason);
+					const stopResult = mapStopReason(item.messageStop.stopReason);
+					output.stopReason = stopResult.stopReason;
+					if (stopResult.errorMessage) {
+						output.errorMessage = stopResult.errorMessage;
+					}
 				} else if (item.metadata) {
 					handleMetadata(item.metadata, model, output);
 				} else if (item.internalServerException) {
@@ -256,8 +260,11 @@ export const streamBedrock: StreamFunction<"bedrock-converse-stream", BedrockOpt
 				throw new Error("Request was aborted");
 			}
 
-			if (output.stopReason === "error" || output.stopReason === "aborted") {
-				throw new Error("An unknown error occurred");
+			if (output.stopReason === "aborted") {
+				throw new Error("Request was aborted");
+			}
+			if (output.stopReason === "error") {
+				throw new Error(output.errorMessage || "Provider returned an error stop reason");
 			}
 
 			stream.push({ type: "done", reason: output.stopReason, message: output });
@@ -782,18 +789,27 @@ function convertToolConfig(
 	return { tools: bedrockTools, toolChoice: bedrockToolChoice };
 }
 
-function mapStopReason(reason: string | undefined): StopReason {
+function mapStopReason(reason: string | undefined): { stopReason: StopReason; errorMessage?: string } {
 	switch (reason) {
 		case BedrockStopReason.END_TURN:
 		case BedrockStopReason.STOP_SEQUENCE:
-			return "stop";
+			return { stopReason: "stop" };
 		case BedrockStopReason.MAX_TOKENS:
 		case BedrockStopReason.MODEL_CONTEXT_WINDOW_EXCEEDED:
-			return "length";
+			return { stopReason: "length" };
 		case BedrockStopReason.TOOL_USE:
-			return "toolUse";
+			return { stopReason: "toolUse" };
 		default:
-			return "error";
+			// Collapse all other reasons (content_filtered, guardrail_intervened,
+			// malformed_model_output, malformed_tool_use, unknown future values) into
+			// the normalized `"error"` StopReason, but carry the raw Bedrock reason
+			// forward in `errorMessage` so users don't see only "An unknown error
+			// occurred" for genuinely distinct failures. Matches the pattern used by
+			// `openai-completions` (see mapStopReason in that module).
+			return {
+				stopReason: "error",
+				errorMessage: reason ? `Bedrock stream ended with stopReason: ${reason}` : undefined,
+			};
 	}
 }
 

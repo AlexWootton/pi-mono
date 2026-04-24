@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Fixed Amazon Bedrock stream errors to surface the raw `stopReason` in the error message instead of collapsing `content_filtered`, `guardrail_intervened`, `malformed_model_output`, and `malformed_tool_use` into a generic `"An unknown error occurred"`. `mapStopReason()` now returns `{ stopReason, errorMessage? }` (matching the shape already used by `openai-completions`); `stopReason` still normalizes to the provider-agnostic `"error"`, but the raw Bedrock reason is carried forward in `output.errorMessage` so callers can tell a content-filter trip from a guardrail or a malformed tool call.
 - Stopped sending `tools: []` on OpenAI-compatible, Anthropic, OpenAI Responses, OpenAI Codex Responses, and Azure OpenAI Responses requests when no tools are active (e.g. `pi --no-tools`). DashScope/Aliyun Qwen (OpenAI-compatible) rejects empty tools arrays with `"[] is too short - 'tools'"` (HTTP 400); the field is now omitted unless the conversation has tool history (the existing LiteLLM/Anthropic-proxy workaround).
 ## [0.70.2] - 2026-04-24
 
